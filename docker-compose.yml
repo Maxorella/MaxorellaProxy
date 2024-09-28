@@ -1,0 +1,43 @@
+version: '3'
+services:
+  db:
+    image: postgres:latest
+    container_name: postgres_db
+    environment:
+      POSTGRES_DB: proxy_db
+      POSTGRES_USER: proxy_user
+      POSTGRES_PASSWORD: proxy_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./tables/1.sql:/docker-entrypoint-initdb.d/1.sql
+      - ./tables/2.sql:/docker-entrypoint-initdb.d/2.sql
+    ports:
+      - "8085:8085"
+    networks:
+      - proxy-network
+
+
+  proxy:
+    depends_on:
+      - db
+    container_name: proxy
+    build:
+      context: .
+      dockerfile: ./build/proxy.Dockerfile
+    ports:
+      - "8080:8080"
+    env_file:
+      - ./.env
+    volumes:
+      - ./certs:/proxy/certs
+    networks:
+      - proxy-network
+
+
+volumes:
+  postgres_data:
+
+networks:
+  proxy-network:
+    name: proxy-network
+    driver: bridge

@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS responses CASCADE;
+
+CREATE TABLE IF NOT EXISTS responses (
+    id SERIAL PRIMARY KEY,
+    code INT NOT NULL,
+    message TEXT NOT NULL,
+    headers JSONB,
+    body TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

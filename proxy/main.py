@@ -24,6 +24,7 @@ def generate_cert(hostname):
     key_file = f"certs/{hostname}.key"
 
     if not os.path.exists(cert_file) or not os.path.exists(key_file):
+
         # Генерируем ключ для хоста
         subprocess.run(["openssl", "genrsa", "-out", key_file, "2048"])
 
@@ -73,11 +74,9 @@ def parse_http_request(request_str):
                 cookie.load(header_value)
                 cookies = {k: v.value for k, v in cookie.items()}
 
-    # Логируем заголовки и Cookie
     print(f"Headers: {headers}")
     print(f"Cookies: {cookies}")
 
-    # Возвращаем результат парсинга
     return {
         "method": method,
         "path": path,
@@ -105,14 +104,14 @@ def parse_http_response(response_str, response_body):
             header_name, header_value = line.split(': ', 1)
             headers[header_name] = header_value
 
+
     # Проверяем сжатие ответа и декомпрессируем
     if 'Content-Encoding' in headers:
         response_body = decompress_content(response_body, headers['Content-Encoding'])
 
-    # Логируем заголовки и тело ответа
     print(f"Response Code: {status_code}")
     print(f"Headers: {headers}")
-    print(f"Body: {response_body[:200]}...")  # Обрезаем тело для логирования
+    print(f"Body: {response_body[:200]}...")
 
     return {
         "code": status_code,
