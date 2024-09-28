@@ -15,7 +15,7 @@ import subprocess
 PROXY_PORT = 8080
 
 # Путь к корневому сертификату и ключу
-CA_CERT = "certs/ca.pem"
+CA_CERT = "certs/ca.crt"
 CA_KEY = "certs/ca.key"
 
 
@@ -28,11 +28,11 @@ def generate_cert(hostname):
         subprocess.run(["openssl", "genrsa", "-out", key_file, "2048"])
 
         # Создаем CSR (запрос на подпись сертификата)
-        subprocess.run(["openssl", "req", "-new", "-key", key_file, "-out", f"{hostname}.csr",
+        subprocess.run(["openssl", "req", "-new", "-key", key_file, "-out", f"{hostname}.crt",
                         "-subj", f"/C=RU/ST=Moscow/L=Moscow/O=MyProxy/CN={hostname}"])
 
         # Подписываем сертификат корневым CA
-        subprocess.run(["openssl", "x509", "-req", "-in", f"{hostname}.csr", "-CA", CA_CERT, "-CAkey", CA_KEY,
+        subprocess.run(["openssl", "x509", "-req", "-in", f"{hostname}.crt", "-CA", CA_CERT, "-CAkey", CA_KEY,
                         "-CAcreateserial", "-out", cert_file, "-days", "365", "-sha256"])
 
     return cert_file, key_file
@@ -119,6 +119,60 @@ def handle_http(client_socket, request):
         client_socket.close()
 
 
+def handle_https(client_socket, request):
+    try:
+        # Получаем хост и порт из CONNECT запроса
+        first_line = request.split('\n')[0]
+        target_host_port = first_line.split()[1]
+        target_host, target_port = target_host_port.split(':')
+        target_port = int(target_port)
+
+        print(f"[*] Перехвачено соединение к {target_host}:{target_port}")
+
+        # Возвращаем клиенту ответ 200, сигнализируя, что можно начать TLS-соединение
+        client_socket.send(b"HTTP/1.0 200 Connection established\r\n\r\n")
+
+        cert_file, key_file = generate_cert(target_host)
+
+        client_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        client_context.load_cert_chain(certfile=cert_file, keyfile=key_file)
+        client_conn = client_context.wrap_socket(client_socket, server_side=True)
+
+        # Создаем TCP-соединение с целевым сервером
+        target_sock = socket.create_connection((target_host, target_port))
+        target_conn = ssl.wrap_socket(target_sock)
+
+
+        # Проксирование данных между клиентом и сервером
+        def forward_data(src, dest):
+            try:
+                while True:
+                    data = src.recv(4096)
+                    if not data:  # Check for empty data
+                        break
+                    dest.sendall(data)
+            except Exception as e:
+                print(f"Error during forwarding: {e}")
+            finally:
+                src.close()
+                dest.close()
+
+        # Запуск потоков для двухстороннего проксирования
+        client_to_server = threading.Thread(target=forward_data, args=(client_conn, target_conn))
+        server_to_client = threading.Thread(target=forward_data, args=(target_conn, client_conn))
+        client_to_server.start()
+        server_to_client.start()
+
+        # Wait for threads to finish
+        client_to_server.join()
+        server_to_client.join()
+    except Exception as e:
+        print(f"Ошибка: {e}")
+    finally:
+        client_socket.close()
+        target_sock.close()
+
+
 def handle_client(client_socket):
     try:
         request = client_socket.recv(2048).decode('utf-8')
@@ -126,7 +180,7 @@ def handle_client(client_socket):
         if request.startswith("CONNECT"):
             pass
             #Обрабатываем HTTPS (CONNECT-запрос)
-            #handle_https(client_socket, request)
+            handle_https(client_socket, request)
         else:
             # Обрабатываем обычный HTTP-запрос
             handle_http(client_socket, request)
