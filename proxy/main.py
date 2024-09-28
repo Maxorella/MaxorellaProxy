@@ -37,6 +37,18 @@ def generate_cert(hostname):
 
     return cert_file, key_file
 
+def decompress_content(data, encoding):
+    try:
+        if encoding == 'gzip':
+            return gzip.decompress(data).decode('utf-8', errors='ignore')
+        elif encoding == 'deflate':
+            return zlib.decompress(data).decode('utf-8', errors='ignore')
+        else:
+            return data.decode('utf-8', errors='ignore')
+    except Exception as e:
+        print(f"Ошибка декомпрессии: {e}")
+        return data.decode('utf-8', errors='ignore')
+
 
 def handle_http(client_socket, request):
     try:
@@ -119,6 +131,72 @@ def handle_http(client_socket, request):
         client_socket.close()
 
 
+def forward_data(src, dest, is_request):
+    data = b""
+    try:
+        while True:
+            chunk = src.recv(4096)
+            if not chunk:  # Check for empty data
+                break
+            dest.sendall(chunk)
+            data += chunk
+    except Exception as e:
+        print(f"Error during forwarding: {e}")
+    finally:
+        src.close()
+        dest.close()
+
+    # Если это запрос, распарсим и логируем как запрос
+    if is_request:
+        try:
+            # Пытаемся декодировать полученные данные
+            request_str = data.decode('utf-8', errors='ignore')
+
+            # Получаем первую строку запроса (метод, URL, версия HTTP)
+            first_line = request_str.split('\n')[0]
+            method, url, http_version = first_line.split()
+
+            # Убираем "http://" если присутствует, чтобы обработать хост
+            if url.startswith("http://"):
+                url = url[len("http://"):]
+
+            # Разделяем хост и путь
+            if '/' in url:
+                host, path = url.split('/', 1)
+                path = '/' + path
+            else:
+                host = url
+                path = '/'
+
+            # Выводим информацию о запросе
+            print(f"[*] Проксируем HTTPS-запрос к {host}{path}")
+            print(f"Метод: {method}, Версия: {http_version}")
+
+        except Exception as e:
+            print(f"Ошибка при разборе HTTPS-запроса: {e}")
+
+    # Если это ответ, распарсим и логируем как ответ
+    else:
+        try:
+            # Пытаемся декодировать ответ
+            response_str = data.decode('utf-8', errors='ignore')
+
+            # Разделяем заголовки и тело
+            header_data, _, body_data = response_str.partition('\r\n\r\n')
+            response_headers = header_data.split('\r\n')
+
+            # Получаем первую строку ответа (версия HTTP, код статуса)
+            first_line = response_headers[0]
+            http_version, status_code, status_message = first_line.split(' ', 2)
+
+            # Логируем ответ
+            print(f"[*] Получен ответ: {status_code} {status_message}")
+            print(f"Заголовки ответа: {response_headers}")
+
+        except Exception as e:
+            print(f"Ошибка при разборе HTTPS-ответа: {e}")
+
+
 def handle_https(client_socket, request):
     try:
         # Получаем хост и порт из CONNECT запроса
@@ -143,23 +221,10 @@ def handle_https(client_socket, request):
         target_conn = ssl.wrap_socket(target_sock)
 
 
-        # Проксирование данных между клиентом и сервером
-        def forward_data(src, dest):
-            try:
-                while True:
-                    data = src.recv(4096)
-                    if not data:  # Check for empty data
-                        break
-                    dest.sendall(data)
-            except Exception as e:
-                print(f"Error during forwarding: {e}")
-            finally:
-                src.close()
-                dest.close()
 
         # Запуск потоков для двухстороннего проксирования
-        client_to_server = threading.Thread(target=forward_data, args=(client_conn, target_conn))
-        server_to_client = threading.Thread(target=forward_data, args=(target_conn, client_conn))
+        client_to_server = threading.Thread(target=forward_data, args=(client_conn, target_conn, True))
+        server_to_client = threading.Thread(target=forward_data, args=(target_conn, client_conn, False))
         client_to_server.start()
         server_to_client.start()
 
