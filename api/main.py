@@ -6,7 +6,6 @@ from psycopg2.extras import RealDictCursor
 from typing import List, Optional
 import os
 from pydantic import BaseModel
-from datetime import datetime
 
 app = FastAPI()
 
@@ -35,10 +34,10 @@ class RequestRecord(BaseModel):
     id: int
     method: str
     path: str
-    get_params: Optional[dict]  # Сделать опциональным
-    headers: Optional[dict]      # Сделать опциональным
-    cookies: Optional[dict]      # Сделать опциональным
-    post_params: Optional[dict]  # Сделать опциональным
+    get_params: Optional[dict]
+    headers: Optional[dict]
+    cookies: Optional[dict]
+    post_params: Optional[dict]
     request_time: str
 
 
@@ -47,7 +46,7 @@ class ResponseRecord(BaseModel):
     request_id: int
     status_code: str
     status_message: str
-    headers: Optional[dict]  # Сделать опциональным
+    headers: Optional[dict]
     body: str
     response_time: str
 
@@ -62,7 +61,6 @@ async def get_requests():
     cursor.execute("SELECT * FROM requests ORDER BY request_time DESC")
     requests = cursor.fetchall()
 
-    # Преобразование данных перед возвратом
     result = [
         {
             **request,
@@ -89,7 +87,6 @@ async def get_request_by_id(id: int):
 
     cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-    # Fetch the request
     cursor.execute("SELECT * FROM requests WHERE id = %s", (id,))
     request = cursor.fetchone()
 
@@ -98,14 +95,12 @@ async def get_request_by_id(id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="Request not found.")
 
-    # Fetch the corresponding response
     cursor.execute("SELECT * FROM responses WHERE request_id = %s", (id,))
     response = cursor.fetchone()
 
     cursor.close()
     conn.close()
 
-    # Combine request and response
     result = {
         "request": {
             **request,
@@ -125,7 +120,6 @@ async def repeat_request(id: int):
 
     cursor = conn.cursor(cursor_factory=RealDictCursor)
 
-    # Получаем запрос по id
     cursor.execute("SELECT * FROM requests WHERE id = %s", (id,))
     request_data = cursor.fetchone()
 
@@ -134,7 +128,6 @@ async def repeat_request(id: int):
         conn.close()
         raise HTTPException(status_code=404, detail="Request not found.")
 
-    # Извлекаем данные из запроса
     method = request_data['method']
     path = request_data['path']
     headers = request_data['headers']
@@ -143,7 +136,6 @@ async def repeat_request(id: int):
     post_params = request_data['post_params']
     protocol = request_data['protocol']
 
-    # Собираем хост из заголовков (параметр Host)
     host = headers.get('Host', 'localhost')
 
     # Формируем конечный URL с учетом протокола
@@ -162,24 +154,21 @@ async def repeat_request(id: int):
         curl_cookies_str = f" -b '{cookies_str}'"
 
     # Базовая часть curl-команды
-    curl_command = f"curl -v -x http://host.docker.internal:{PROXY_PORT}/    {method} {target_url} {' '.join(curl_headers)}{curl_cookies_str}"
+    curl_command = f"curl -v -x http://host.docker.internal:{PROXY_PORT}/ {method} {target_url} {' '.join(curl_headers)}{curl_cookies_str}"
 
-    # Добавляем данные для POST, PUT, и PATCH запросов
     if method in ["POST", "PUT", "PATCH"] and post_params:
         post_data = '&'.join([f"{k}={v[0]}" for k, v in post_params.items()])
         curl_command += f" --data '{post_data}'"
 
     # Если используется HTTPS, добавляем сертификат
     if protocol.lower() == "https":
-        cert_path = "/api/certs/ca.crt"  # путь к сертификату в контейнере
+        cert_path = "/api/certs/ca.crt"  # путь к сертификату
         curl_command += f" --cacert {cert_path}"
 
     try:
-        # Выполняем curl-команду
-        print(curl_command, flush=True)
+
         result = subprocess.run(curl_command, shell=True, capture_output=True, text=True)
 
-        # Возвращаем результат выполнения
         return {
             "curl_command": curl_command,
             "stdout": result.stdout,

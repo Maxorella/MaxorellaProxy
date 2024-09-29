@@ -1,12 +1,10 @@
 import gzip
 import json
-#import select
 import socket
 import zlib
 from http.cookies import SimpleCookie
 from urllib.parse import urlparse, parse_qs
 
-#import psycopg2
 import ssl
 import threading
 import os
@@ -24,17 +22,18 @@ DB_PASSWORD = os.getenv('DB_PASSWORD')
 def get_db_connection():
     try:
         conn = psycopg2.connect(
-            dbname=DB_NAME,  # Имя базы данных
-            user=DB_USER,  # Пользователь базы данных
-            password=DB_PASSWORD,  # Пароль
-            host=DB_HOST,  # Имя хоста (в docker-compose это "db")
-            port=DB_PORT  # Порт PostgreSQL
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=DB_PORT
         )
         print("Successfully connected to the database.")
         return conn
     except psycopg2.OperationalError as e:
         print(f"Unable to connect to the database: {e}")
         return None
+
 PROXY_PORT = 8080
 
 
@@ -54,10 +53,10 @@ def save_request_to_db(parsed_request, post_params=None, protocol="http"):
         json.dumps(parsed_request['headers']),
         json.dumps(parsed_request['cookies']),
         json.dumps(post_params) if post_params else None,
-        protocol  # Новое поле протокола
+        protocol
     ))
 
-    request_id = cursor.fetchone()[0]  # Получаем сгенерированный id запроса
+    request_id = cursor.fetchone()[0]
     conn.commit()
     cursor.close()
     conn.close()
@@ -71,17 +70,12 @@ def save_response_to_db(request_id, parsed_response):
         return
 
     cursor = conn.cursor()
-    print("response id to save", request_id, flush=True)
 
-    # Заменяем None на пустые строки
     status_code = parsed_response['code'] if parsed_response['code'] is not None else ''
     status_message = parsed_response['message'] if parsed_response['message'] is not None else ''
     headers = json.dumps(parsed_response['headers']) if parsed_response['headers'] is not None else '{}'
     body = parsed_response['body'] if parsed_response['body'] is not None else ''
 
-    # Выводим значения перед вставкой
-    #print(f"Inserting Response: request_id={request_id}, code={status_code}, "
-    #      f"message={status_message}, headers={headers}, body={body}", flush=True)
 
     insert_query = sql.SQL("""
         INSERT INTO responses (id, request_id, status_code, status_message, headers, body)
@@ -140,7 +134,7 @@ def decompress_content(data, encoding):
         else:
             return str(data)
     except Exception as e:
-        print(f"Ошибка декомпрессии: {e}")
+        print(f"Ошибка: {e}")
         return data.decode('utf-8', errors='ignore')
 
 
@@ -166,8 +160,6 @@ def parse_http_request(request_str):
                 cookie.load(header_value)
                 cookies = {k: v.value for k, v in cookie.items()}
 
-    #print(f"Headers: {headers}")
-    #print(f"Cookies: {cookies}")
 
     return {
         "method": method,
@@ -197,13 +189,10 @@ def parse_http_response(response_str, response_body):
             headers[header_name] = header_value
 
 
-    # Проверяем сжатие ответа и декомпрессируем
+    # Проверяем сжатие ответа
     if 'Content-Encoding' in headers:
         response_body = decompress_content(response_body, headers['Content-Encoding'])
 
-    #print(f"Response Code: {status_code}")
-    #print(f"Headers: {headers}")
-    #print(f"Body: {response_body[:200]}...")
 
     return {
         "code": status_code,
@@ -229,13 +218,13 @@ def handle_http(client_socket, request):
             host = url
             path = '/'
 
-        port = 80  # По умолчанию порт 80 для HTTP
+        port = 80  # По умолчанию порт 80
         if ':' in host:
             host, port = host.split(':')
             port = int(port)
 
         # Разделяем заголовки
-        headers = request.split('\r\n')[1:]  # Пропускаем первую строку
+        headers = request.split('\r\n')[1:]
         headers_dict = {}
         headers_dict = {line.split(': ')[0]: line.split(': ')[1] for line in headers if ': ' in line}
 
@@ -269,18 +258,14 @@ def handle_http(client_socket, request):
         # Парсим ответ
         parsed_response = parse_http_response(response_headers_str, response_body_str)
 
-        # Проверяем, является ли parsed_response['headers'] словарем перед вызовом .get()
         headers_dict_response = parsed_response.get('headers', {})
         if isinstance(headers_dict_response, dict):
             content_encoding = headers_dict_response.get('Content-Encoding', '')
         else:
-            print("Parsed headers are not in dictionary format:", headers_dict_response)
-            content_encoding = ''  # Устанавливаем значение по умолчанию
+            print("dictionary format:", headers_dict_response)
+            content_encoding = ''
 
-        # Выводим данные перед сохранением
-        # print(f"Parsed Response: {parsed_response}")
 
-        # Сохраняем ответ в базу данных, связав с запросом по request_id
         save_response_to_db(request_id, parsed_response)
 
         # Отправляем ответ клиенту
@@ -308,13 +293,12 @@ def forward_data(src, dest, is_request, request_id):
     finally:
         pass
 
-    #print(f"Полученный ответ: {data[:200]}...", flush=True)  # Выводим первые 200 байт ответа
 
     if is_request:
         try:
             request_str = data.decode('utf-8', errors='ignore')
             parsed_request = parse_http_request(request_str)
-            request_id = save_request_to_db(parsed_request, None , "https")  # Сохраняем запрос
+            save_request_to_db(parsed_request, None , "https")  # Сохраняем запрос
         except Exception as e:
             print(f"Ошибка при разборе HTTPS-запроса: {e}", flush=True)
     else:
@@ -323,8 +307,7 @@ def forward_data(src, dest, is_request, request_id):
             response_headers_str = response_str.decode('utf-8', errors='ignore')
             parsed_response = parse_http_response(response_headers_str, response_body)
 
-            #(f"Сохраняем ответ с request_id {request_id}: {parsed_response}", flush=True)  # Отладочное сообщение
-            save_response_to_db(request_id, parsed_response)  # Сохраняем ответ
+            save_response_to_db(request_id, parsed_response)
         except Exception as e:
             print(f"Ошибка при разборе HTTPS-ответа: {e}", flush=True)
 
@@ -357,7 +340,7 @@ def handle_https(client_socket, request):
 
         print(f"[*] Перехвачено соединение к {target_host}:{target_port}")
 
-        # Возвращаем клиенту ответ 200, сигнализируя, что можно начать TLS-соединение
+        # Возвращаем клиенту ответ 200
         client_socket.send(b"HTTP/1.0 200 Connection established\r\n\r\n")
 
         # Генерация сертификата для целевого хоста
@@ -373,15 +356,15 @@ def handle_https(client_socket, request):
         target_conn = ssl.wrap_socket(target_sock)
 
         # Перехватываем запросы и ответы (создаем request_id для HTTPS-запросов)
-        request_id = get_next_request_id()  # Инициализируем request_id для HTTPS-запросов
+        request_id = get_next_request_id()
         print(f"request id {request_id}")
+
         # Запуск потоков для перенаправления данных
         client_to_server = threading.Thread(target=forward_data, args=(client_conn, target_conn, True, request_id))
         server_to_client = threading.Thread(target=forward_data, args=(target_conn, client_conn, False, request_id))
         client_to_server.start()
         server_to_client.start()
 
-        # Ожидание завершения потоков
         client_to_server.join()
         server_to_client.join()
         client_conn.close()
@@ -399,10 +382,8 @@ def handle_client(client_socket):
 
         if request.startswith("CONNECT"):
             pass
-            #Обрабатываем HTTPS (CONNECT-запрос)
             handle_https(client_socket, request)
         else:
-            # Обрабатываем обычный HTTP-запрос
             handle_http(client_socket, request)
 
     except Exception as e:
@@ -423,7 +404,4 @@ def start_proxy():
         threading.Thread(target=handle_client, args=(client_socket,)).start()
 
 if __name__ == "__main__":
-    #init_db()
-    #init_db()
-    print("start")
     start_proxy()
