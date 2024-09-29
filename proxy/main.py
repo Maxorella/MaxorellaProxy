@@ -38,13 +38,13 @@ def get_db_connection():
 PROXY_PORT = 8080
 
 
-def save_request_to_db(parsed_request, post_params=None):
+def save_request_to_db(parsed_request, post_params=None, protocol="http"):
     conn = get_db_connection()
     cursor = conn.cursor()
 
     insert_query = sql.SQL("""
-        INSERT INTO requests (method, path, get_params, headers, cookies, post_params)
-        VALUES (%s, %s, %s, %s, %s, %s) RETURNING id;
+        INSERT INTO requests (method, path, get_params, headers, cookies, post_params, protocol)
+        VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id;
     """)
 
     cursor.execute(insert_query, (
@@ -53,7 +53,8 @@ def save_request_to_db(parsed_request, post_params=None):
         json.dumps(parsed_request['get_params']),
         json.dumps(parsed_request['headers']),
         json.dumps(parsed_request['cookies']),
-        json.dumps(post_params) if post_params else None
+        json.dumps(post_params) if post_params else None,
+        protocol  # Новое поле протокола
     ))
 
     request_id = cursor.fetchone()[0]  # Получаем сгенерированный id запроса
@@ -245,7 +246,7 @@ def handle_http(client_socket, request):
         parsed_request = parse_http_request(new_request)
 
         # Сохраняем запрос в базу данных
-        request_id = save_request_to_db(parsed_request)
+        request_id = save_request_to_db(parsed_request, None, "http")
 
         # Подключаемся к целевому серверу
         target_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -303,7 +304,7 @@ def forward_data(src, dest, is_request, request_id):
         try:
             request_str = data.decode('utf-8', errors='ignore')
             parsed_request = parse_http_request(request_str)
-            request_id = save_request_to_db(parsed_request)  # Сохраняем запрос
+            request_id = save_request_to_db(parsed_request, None , "https")  # Сохраняем запрос
         except Exception as e:
             print(f"Ошибка при разборе HTTPS-запроса: {e}", flush=True)
     else:

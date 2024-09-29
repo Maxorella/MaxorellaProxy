@@ -12,5 +12,4 @@ RUN mkdir -p certs
 
 EXPOSE 8080
 
-CMD ["python","-u", "main.py"]
-
+CMD ["python", "-u", "main.py"]

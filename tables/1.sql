@@ -8,5 +8,6 @@ CREATE TABLE IF NOT EXISTS requests (
     headers JSONB,
     cookies JSONB,
     post_params JSONB,
+    protocol VARCHAR(10),  -- HTTP или HTTPS
     request_time TIMESTAMP DEFAULT NOW()
 );

@@ -1,3 +1,5 @@
+import subprocess
+
 from fastapi import FastAPI, HTTPException
 import psycopg2
 from psycopg2.extras import RealDictCursor
@@ -13,7 +15,7 @@ DB_PORT = os.getenv('DB_PORT', 5432)
 DB_NAME = os.getenv('DB_NAME', 'proxy_db')
 DB_USER = os.getenv('DB_USER', 'proxy_user')
 DB_PASSWORD = os.getenv('DB_PASSWORD', 'proxy_password')
-
+PROXY_PORT = os.getenv('PROXY_PORT', 8080)
 
 def get_db_connection():
     try:
@@ -115,6 +117,76 @@ async def get_request_by_id(id: int):
     return result
 
 
-@app.get("/health")
-async def health_check():
-    return {"status": "OK"}
+@app.get("/repeat/{id}")
+async def repeat_request(id: int):
+    conn = get_db_connection()
+    if conn is None:
+        raise HTTPException(status_code=500, detail="Database connection failed.")
+
+    cursor = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Получаем запрос по id
+    cursor.execute("SELECT * FROM requests WHERE id = %s", (id,))
+    request_data = cursor.fetchone()
+
+    if not request_data:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Request not found.")
+
+    # Извлекаем данные из запроса
+    method = request_data['method']
+    path = request_data['path']
+    headers = request_data['headers']
+    cookies = request_data['cookies']
+    get_params = request_data['get_params']
+    post_params = request_data['post_params']
+    protocol = request_data['protocol']
+
+    # Собираем хост из заголовков (параметр Host)
+    host = headers.get('Host', 'localhost')
+
+    # Формируем конечный URL с учетом протокола
+    target_url = f"{protocol.lower()}://{host}{path}"
+    if get_params:
+        params = '&'.join([f"{k}={v[0]}" for k, v in get_params.items()])
+        target_url += f"?{params}"
+
+    # Формируем заголовки для curl
+    curl_headers = [f"-H '{key}: {value}'" for key, value in headers.items()]
+
+    # Формируем строку с куками
+    curl_cookies_str = ""
+    if cookies:
+        cookies_str = "; ".join([f"{key}={value}" for key, value in cookies.items()])
+        curl_cookies_str = f" -b '{cookies_str}'"
+
+    # Базовая часть curl-команды
+    curl_command = f"curl -v -x http://host.docker.internal:{PROXY_PORT}/ -X  {method} {target_url} {' '.join(curl_headers)}{curl_cookies_str}"
+
+    # Добавляем данные для POST, PUT, и PATCH запросов
+    if method in ["POST", "PUT", "PATCH"] and post_params:
+        post_data = '&'.join([f"{k}={v[0]}" for k, v in post_params.items()])
+        curl_command += f" --data '{post_data}'"
+
+    # Если используется HTTPS, добавляем сертификат
+    if protocol.lower() == "https":
+        cert_path = "/api/certs/ca.crt"  # путь к сертификату в контейнере
+        curl_command += f" --cacert {cert_path}"
+
+    try:
+        # Выполняем curl-команду
+        print(curl_command, flush=True)
+        result = subprocess.run(curl_command, shell=True, capture_output=True, text=True)
+
+        # Возвращаем результат выполнения
+        return {
+            "curl_command": curl_command,
+            "stdout": result.stdout,
+            "stderr": result.stderr
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error executing curl command: {e}")
+    finally:
+        cursor.close()
+        conn.close()

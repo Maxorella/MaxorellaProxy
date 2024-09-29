@@ -1,6 +1,10 @@
 # Dockerfile для FastAPI API
 FROM python:3.9-slim
 
+
+# Устанавливаем curl
+RUN apt-get update && apt-get install -y curl
+
 # Устанавливаем зависимости
 COPY ./requirements.txt /app/requirements.txt
 WORKDIR /app
