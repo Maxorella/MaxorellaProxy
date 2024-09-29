@@ -12,7 +12,7 @@ services:
       - ./tables/1.sql:/docker-entrypoint-initdb.d/1.sql
       - ./tables/2.sql:/docker-entrypoint-initdb.d/2.sql
     ports:
-      - "8085:8085"
+      - "5432:5432"
     networks:
       - proxy-network
 
@@ -32,7 +32,19 @@ services:
       - ./certs:/proxy/certs
     networks:
       - proxy-network
-
+  api:
+    container_name: proxy_api
+    build:
+      context: .
+      dockerfile: ./build/api.Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    env_file:
+      - ./.env
+    networks:
+      - proxy-network
 
 volumes:
   postgres_data:

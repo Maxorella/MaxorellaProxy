@@ -2,9 +2,10 @@ DROP TABLE IF EXISTS responses CASCADE;
 
 CREATE TABLE IF NOT EXISTS responses (
     id SERIAL PRIMARY KEY,
-    code INT NOT NULL,
-    message TEXT NOT NULL,
+    request_id INT REFERENCES requests(id),
+    status_code VARCHAR(10),
+    status_message TEXT,
     headers JSONB,
     body TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    response_time TIMESTAMP DEFAULT NOW()
 );
