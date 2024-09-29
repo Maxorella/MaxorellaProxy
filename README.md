@@ -4,7 +4,7 @@
 
 curl -v -x http://127.0.0.1:8080/ http://193.108.54.41/
 
-curl -v -x http://127.0.0.1:8080 https://mail.ru --cacert path_to/certs/ca.crt
+curl -v -x http://127.0.0.1:8080 https://mail.ru --cacert absolute_path/certs/ca.crt
 (может достаточно долго сохраняться)
 
 http://127.0.0.1:8000/requests/ - вывести все запросы
