@@ -218,7 +218,7 @@ def handle_http(client_socket, request):
         first_line = request.split('\n')[0]
         method, url, http_version = first_line.split()
 
-        # Убираем "http://", если есть, и парсим хост и путь
+        # Убираем "http://" из URL, если есть, и парсим хост и путь
         if url.startswith("http://"):
             url = url[len("http://"):]
 
@@ -234,12 +234,13 @@ def handle_http(client_socket, request):
             host, port = host.split(':')
             port = int(port)
 
-        # Убираем заголовок Proxy-Connection
-        headers = request.split('\r\n')[1:]
-        headers = headers[:len(headers)-2]
-        headers = [line for line in headers if not line.startswith("Proxy-Connection")]
+        # Разделяем заголовки
+        headers = request.split('\r\n')[1:]  # Пропускаем первую строку
+        headers_dict = {}
+        headers_dict = {line.split(': ')[0]: line.split(': ')[1] for line in headers if ': ' in line}
 
         new_request = f"{method} {path} {http_version}\r\n" + '\r\n'.join(headers) + '\r\n\r\n'
+        print(new_request.replace('\r', '\\r').replace('\n', '\\n'), flush=True)
         print(f"[*] Проксируем запрос к {host}:{port}")
 
         # Парсим запрос
@@ -263,13 +264,21 @@ def handle_http(client_socket, request):
         # Обработка ответа
         response_str, _, response_body = response.partition(b'\r\n\r\n')
         response_headers_str = response_str.decode('utf-8', errors='ignore')
-        response_body_str = decompress_content(response_body, headers.get('Content-Encoding', ''))
+        response_body_str = decompress_content(response_body, headers_dict.get('Content-Encoding', ''))
 
         # Парсим ответ
         parsed_response = parse_http_response(response_headers_str, response_body_str)
 
+        # Проверяем, является ли parsed_response['headers'] словарем перед вызовом .get()
+        headers_dict_response = parsed_response.get('headers', {})
+        if isinstance(headers_dict_response, dict):
+            content_encoding = headers_dict_response.get('Content-Encoding', '')
+        else:
+            print("Parsed headers are not in dictionary format:", headers_dict_response)
+            content_encoding = ''  # Устанавливаем значение по умолчанию
+
         # Выводим данные перед сохранением
-        #print(f"Parsed Response: {parsed_response}")
+        # print(f"Parsed Response: {parsed_response}")
 
         # Сохраняем ответ в базу данных, связав с запросом по request_id
         save_response_to_db(request_id, parsed_response)
@@ -283,6 +292,7 @@ def handle_http(client_socket, request):
         print(f"Ошибка при обработке HTTP-запроса: {e}")
     finally:
         client_socket.close()
+
 
 def forward_data(src, dest, is_request, request_id):
     data = b""

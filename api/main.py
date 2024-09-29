@@ -162,7 +162,7 @@ async def repeat_request(id: int):
         curl_cookies_str = f" -b '{cookies_str}'"
 
     # Базовая часть curl-команды
-    curl_command = f"curl -v -x http://host.docker.internal:{PROXY_PORT}/ -X  {method} {target_url} {' '.join(curl_headers)}{curl_cookies_str}"
+    curl_command = f"curl -v -x http://host.docker.internal:{PROXY_PORT}/    {method} {target_url} {' '.join(curl_headers)}{curl_cookies_str}"
 
     # Добавляем данные для POST, PUT, и PATCH запросов
     if method in ["POST", "PUT", "PATCH"] and post_params:
